@@ -1,0 +1,307 @@
+version: '3.9'
+
+volumes:
+  db-data:
+    driver: local
+
+networks:
+  kong-net:
+    driver: bridge
+
+services:
+  kong-migrations:
+    image: kong-gw-custom-gzipplugin:3.10.0.2
+    #image: kong-custom:latest
+    # image: kong-custom-go 
+    #image: kong/kong-gateway:3.11
+    #image: kong/kong-gateway:3.4.3.16
+    #image: kong/kong-gateway:3.4.3.13
+    # image: kong/kong-gateway:3.4.3.10
+    #image: kong/kong-gateway:3.9.0.1
+    #image: kong/kong-gateway:2.8.4.13
+    container_name: kong-migrations
+    #command: 
+    #  - "kong migrations up"
+    #  - "kong migrations finish"
+    command: "kong migrations bootstrap"
+    depends_on:
+      kong-db:
+        condition: service_healthy
+    networks:
+     - kong-net
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_DATABASE: kong
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kong
+      #KONG_LICENSE_DATA: ${KONG_LICENSE_DATA}    
+    restart: on-failure
+
+
+
+  kong-db:
+    image: postgres:13.1
+    container_name: kong-db
+    networks:
+     - kong-net
+    environment:
+      POSTGRES_DB: kong
+      POSTGRES_PASSWORD: kong
+      POSTGRES_USER: kong
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "kong"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: on-failure
+    stdin_open: true
+    tty: true
+    ports:
+      - 5432:5432/tcp
+
+
+
+  kong-cp:
+    image: kong-gw-custom-gzipplugin:3.10.0.2
+    #image: kong-custom:latest
+    #image: kong/kong-gateway:3.11
+    #image: kong-gateway-custom:3.10.0.2
+    #image: kong/kong-gateway:3.4.3.16
+    #image: kong/kong-gateway:3.9.0.1
+    #image: kong/kong-gateway:2.8.4.13
+    container_name: kong-cp
+    networks:
+     - kong-net
+    command: ["sh", "-c", "kong migrations up && kong migrations finish && kong start"]
+    user: "${KONG_USER:-kong}"
+    depends_on:
+      kong-db:
+        condition: service_healthy
+    environment:
+      #KONG_LICENSE_DATA: ${KONG_LICENSE_DATA}
+      #KONG_DATABASE: "strategy"
+      KONG_LICENSE_PATH: /etc/kong/license.json
+      KONG_UNTRUSTED_LUA: "sandbox"
+      KONG_UNTRUSTED_LUA_SANDBOX_REQUIRES: "cjson"
+      KONG_ROLE: control_plane
+      KONG_CLUSTER_CERT: /certs/cluster.crt
+      KONG_CLUSTER_CERT_KEY: /certs/cluster.key
+      KONG_AUDIT_LOG: "on"
+      #KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_DATABASE: kong
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kong
+
+      #KONG_ENFORCE_RBAC: "on"
+      #KONG_ADMIN_GUI_SESSION_CONF={"secret":"kong", "cookie_lifetime":300000, "cookie_renew":200000, "cookie_name":"kong_cookie", "cookie_secure":false, "cookie_samesite": "off"}'
+      #KONG_ADMIN_GUI_SESSION_CONF: '{ "cookie_name":"kong_manager_session", "secret":"adminsecret", "storage":"kong", "cookie_secure": false, "cookie_lifetime": 3600 }'
+      # Kong Manager password
+      #KONG_ADMIN_GUI_AUTH: basic-auth
+
+      #KONG_NGINX_PROXY_GZIP: "on"
+      #KONG_NGINX_PROXY_GZIP_PROXIED: "any"
+      #KONG_NGINX_PROXY_GZIP_TYPES: "*"
+      #KONG_NGINX_PROXY_GZIP_COMP_LEVEL: 5
+
+      #KONG_NGINX_HTTP_GZIP: "on"
+      #KONG_NGINX_HTTP_GZIP_TYPES: "application/gzip"
+
+     #KONG_PASSWORD: kong_secret
+
+      KONG_NGINX_WORKER_PROCESSES: 2
+      KONG_ANONYMOUS_REPORTS: "off"
+      KONG_LOG_LEVEL: debug
+      KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 http2 ssl
+      KONG_SSL_CERT: /ssl/server.crt
+      KONG_SSL_CERT_KEY: /ssl/server.key
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001, 0.0.0.0:8444 ssl
+      KONG_ADMIN_API_URI: "http://localhost:8001"
+      KONG_ADMIN_GUI_LISTEN: 0.0.0.0:8002, 0.0.0.0:8445 ssl
+      KONG_STATUS_LISTEN: "0.0.0.0:8100"
+      #KONG_ADMIN_GUI_URL: "http://localhost:8002, https://localhost:8445"
+      KONG_ADMIN_GUI_URL: "http://localhost:8002"
+      # KONG_ADMIN_GUI_AUTH: "basic-auth"
+      KONG_ALLOW_DEBUG_HEADER: "on"
+      # KONG_ADMIN_GUI_SESSION_CONF: '{ "cookie_name":"kong_manager_session", "secret":"adminsecret", "storage":"kong", "cookie_secure": false, "cookie_lifetime": 3600 }'
+#      KONG_ADMIN_GUI_AUTH: "openid-connect"
+#      KONG_ADMIN_GUI_AUTH_CONF: '{  "issuer": "http://192.168.0.147:8080/auth/realms/kong_gateway/.well-known/openid-configuration", 
+#                                     "client_id": ["kong-manager"], 
+#                                     "ssl_verify": false,
+#                                     "admin_claim": "email", 
+#                                     "leeway": 60,  
+#                                     "client_secret": ["430cb153-3aa5-4642-a5ce-682697aa66d0"],
+#                                     "redirect_uri": ["http://localhost:8002"],       
+#                                     "login_redirect_uri": ["http://localhost:8002"],
+#                                     "auth_methods": ["authorization_code"],
+#                                     "logout_methods": ["GET", "DELETE"],
+#                                     "logout_query_arg": "logout",
+#                                     "logout_redirect_uri": ["http://localhost:8002"]
+#                                 }'
+      KONG_VITALS: "on"
+      KONG_PORTAL: "off"
+      #KONG_VITALS_STATSD_ADDRESS: statsd:9125 
+      #KONG_VITALS_STRATEGY: prometheus 
+      #KONG_VITALS_TSDB_ADDRESS: prometheus:9090 
+
+#      KONG_VAULT_HCV_PROTOCOL: http
+#      KONG_VAULT_HCV_HOST: vault
+#      KONG_VAULT_HCV_PORT: 8201
+#      KONG_VAULT_HCV_MOUNT: secret
+#      KONG_VAULT_HCV_KV: v2
+#      KONG_VAULT_HCV_AUTH_METHOD: token
+#      KONG_VAULT_HCV_TOKEN: '00000000-0000-0000-0000-000000000000'
+#      KONG_VAULT_HCV_TTL: 10
+#      KONG_VAULT_HCV_NEG_TTL: 10
+#      KONG_VAULT_HCV_RESURRECT_TTL: 300
+#      KONG_AUDIT_LOG: "on"
+      KONG_AUDIT_LOG_RECORD_TTLL: 2592000
+    ports:
+#      - "7000:8000/tcp"
+      - "8001:8001/tcp"
+      - "8002:8002/tcp"
+      - "8005:8005/tcp"
+      - "8003:8003/tcp"
+      - "8004:8004/tcp"
+      - "8443:8443/tcp"
+      - "8444:8444/tcp"
+      - "8445:8445/tcp"
+      - "8446:8446/tcp"
+      - "8447:8447/tcp"
+      - "8100:8100/tcp"
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    volumes:
+      - ./certs:/certs
+      - ./kong-new-certs:/ssl
+      - ./license.json:/etc/kong/license.json:ro # Mount your license file here
+    restart: on-failure
+
+
+
+  kong-dp:
+    image: kong-gw-custom-gzipplugin:3.10.0.2
+    # image: kong-custom:latest
+    #image: kong/kong-gateway:3.11
+    #image: kong/kong-gateway:3.4.3.13
+    # image: kong-gateway-custom:3.10.0.2
+    #image: kong/kong-gateway:3.4.3.16
+    #image: kong/kong-gateway:3.4.3.10
+    #image: kong/kong-gateway:3.9.0.1
+    #image: kong/kong-gateway:2.8.4.13
+    container_name: kong-dp
+    networks:
+     - kong-net
+    user: "${KONG_USER:-kong}"
+    depends_on:
+      kong-db:
+        condition: service_healthy
+    environment:
+      #KONG_LICENSE_DATA: ${KONG_LICENSE_DATA}
+      KONG_PROXY_ERROR_LOG: logs/error1.log
+      KONG_ROLE: data_plane
+      KONG_CLUSTER_CERT: /certs/cluster.crt
+      KONG_CLUSTER_CERT_KEY: /certs/cluster.key
+      KONG_CLUSTER_CONTROL_PLANE: kong-cp:8005
+      KONG_CLUSTER_TELEMETRY_ENDPOINT: kong-cp:8006 
+      KONG_AUDIT_LOG: "on"
+      KONG_DATABASE: "off"
+
+      #KONG_NGINX_PROXY_GZIP: "on"
+      #KONG_NGINX_PROXY_GZIP_PROXIED: "any"
+      #KONG_NGINX_PROXY_GZIP_TYPES: "*"
+      #KONG_NGINX_PROXY_GZIP_COMP_LEVEL: 5
+
+      #KONG_NGINX_HTTP_GZIP: "on"
+      #KONG_NGINX_HTTP_GZIP_TYPES: "application/gzip"
+
+
+      KONG_REAL_IP_HEADER: "X-Forwarded-For"
+      KONG_TRUSTED_IPS: "0.0.0.0/0"
+
+      KONG_NGINX_WORKER_PROCESSES: 2
+      KONG_ANONYMOUS_REPORTS: "off"
+      KONG_LOG_LEVEL: debug
+      KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 http2 ssl
+      KONG_SSL_CERT: /ssl/server.crt
+      KONG_SSL_CERT_KEY: /ssl/server.key
+      KONG_ALLOW_DEBUG_HEADER: "on"
+      KONG_VITALS: "on"
+      KONG_STATUS_LISTEN: "0.0.0.0:8100"
+      #KONG_VITALS_STATSD_ADDRESS: statsd:9125 
+      #KONG_VITALS_STRATEGY: prometheus 
+      #KONG_VITALS_TSDB_ADDRESS: prometheus:9090 
+
+      #KONG_NGINX_HTTP_LOG_FORMAT: 'custom_fmt "$remote_addr - $remote_user [$time_local] \"$request_uri\" $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\" Destination: $proxy_host $upstream_addr"'
+      #KONG_NGINX_HTTP_LOG_FORMAT: 'custom_fmt "$remote_addr - $remote_user [$time_local] \"$request\" $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\" Incoming: \"$request_uri\" Upstream: \"$upstream_http_host\""'
+      #KONG_PROXY_ACCESS_LOG: '/dev/stdout custom_fmt'
+      KONG_PROXY_ACCESS_LOG: '/dev/stdout'
+
+#      KONG_VAULT_HCV_PROTOCOL: http
+#      KONG_VAULT_HCV_HOST: vault
+#      KONG_VAULT_HCV_PORT: 8201
+#      KONG_VAULT_HCV_MOUNT: secret
+#      KONG_VAULT_HCV_KV: v2
+#      KONG_VAULT_HCV_AUTH_METHOD: token
+#      KONG_VAULT_HCV_TOKEN: '00000000-0000-0000-0000-000000000000'
+#      KONG_VAULT_HCV_TTL: 10
+#      KONG_VAULT_HCV_NEG_TTL: 10
+#      KONG_VAULT_HCV_RESURRECT_TTL: 300
+
+    ports:
+      - "8000:8000/tcp"
+      - "7443:8443/tcp"
+      - "7100:8100/tcp"
+      #- "8443:8443/tcp"
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    volumes:
+      - ./certs:/certs
+      - ./kong-new-certs:/ssl
+    restart: on-failure
+
+
+
+#  httpbin-1:
+#    image: kennethreitz/httpbin
+#    container_name: httpbin-1
+#
+#    ports:
+#      - 80:80
+
+#  keycloak:
+#    image: jboss/keycloak
+#    environment:
+#      - KEYCLOAK_USER=admin
+#      - KEYCLOAK_PASSWORD=admin
+#    ports:
+#      - "8080:8080"
+#    command:
+#      - "-b 0.0.0.0"
+
+  keycloak:
+#   image: quay.io/keycloak/keycloak:latest-arm64
+    image: quay.io/keycloak/keycloak:24.0.1
+    container_name: keycloak
+    networks:
+     - kong-net
+    ports:
+      - 8080:8080
+    command:
+      - start-dev  
+      - --hostname-strict=false
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KEYCLOAK_LOGLEVEL=DEBUG
+      - ROOT_LOGLEVEL=DEBUG
+
